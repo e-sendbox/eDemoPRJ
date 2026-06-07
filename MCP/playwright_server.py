@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ================================================================
-# Playwright MCP Server — ETA AgentQA
+# Playwright MCP Server — AgentQA
 # ----------------------------------------------------------------
 # Управляет браузером через MCP. Позволяет сканировать  
 # сайты, инвентаризировать UI-элементы, взаимодействовать с 
@@ -123,8 +123,6 @@ DEFAULT_SKIP_EXT = {
 
 
 def is_crawlable(parsed, skip_ext):
-    """Решает, стоит ли краулеру переходить по ссылке:
-    только http/https и не статический файл из чёрного списка расширений."""
     if parsed.scheme not in ("http", "https"):
         return False
     last = parsed.path.rsplit("/", 1)[-1]
@@ -205,9 +203,7 @@ async def handle_request(msg):
                     status = resp.status if resp else None
                 except Exception:
                     pass
-            # URL сразу после load (до возможного клиентского JS-редиректа).
             url_after_load = page.url
-            # Патч B: дать SPA отработать клиентский редирект и осесть.
             if settle_ms:
                 await smart_wait(page, buffer_ms=settle_ms)
             final_url = page.url
@@ -225,9 +221,6 @@ async def handle_request(msg):
             }, ensure_ascii=False)}]})
 
         # ======== browser_snapshot ========
-        # Собирает все видимые интерактивные элементы страницы.
-        # Включает text (innerText), title, aria-label, placeholder.
-        # Отдаёт структурированный JSON.
         elif tool == "browser_snapshot":
             html = await page.evaluate("""() => {
                 const items = [];
@@ -250,9 +243,6 @@ async def handle_request(msg):
             return respond(rid, {"content": [{"type": "text", "text": json.dumps(html, ensure_ascii=False, indent=2)}]})
 
         # ======== browser_find ========
-        # Поиск элементов по тексту. Проверяет innerText, title,
-        # aria-label и placeholder. Возвращает все совпадения
-        # с указанием где именно найден текст (matches).
         elif tool == "browser_find":
             text = args.get("text", "")
             if not text:
@@ -286,8 +276,6 @@ async def handle_request(msg):
             return respond(rid, {"content": [{"type": "text", "text": json.dumps(found, ensure_ascii=False, indent=2)}]})
 
         # ======== browser_click ========
-        # Умный клик: пробует 4 стратегии по цепочке, чтобы
-        # находить кнопки независимо от того, где у них текст:
         #  1) get_by_role("button", name=text)  — стандартные кнопки
         #  2) get_by_title(text)                — иконки с title="..."
         #  3) get_by_label(text)                — aria-label
@@ -312,7 +300,6 @@ async def handle_request(msg):
             return respond(rid, {"content": [{"type": "text", "text": "Clicked"}]})
 
         # ======== browser_type ========
-        # Заполняет поле и проверяет результат. 
         elif tool == "browser_type":
             target = args.get("target", "")
             text = args.get("text", "")
@@ -359,15 +346,9 @@ async def handle_request(msg):
             return respond(rid, {"content": [{"type": "text", "text": json.dumps({"typed": filled})}]})
 
         # ======== browser_crawl ========
-        # Краулит сайт начиная с текущего домена. Собирает все
-        # внутренние ссылки через a[href], обходит BFS, сортирует:
-        #   - статические страницы (/, /catalog, /orders) — выше
-        #   - UUID-страницы (/catalog/{uuid}) — ниже
-        #   - страницы с query-параметрами — ещё ниже
         elif tool == "browser_crawl":
             max_pages = args.get("maxPages", 50)
             per_pattern_cap = args.get("perPatternCap", 3)
-            # Патч A: фильтр статических файлов. includeAssets=true отключает фильтр.
             if args.get("includeAssets"):
                 skip_ext = set()
             elif args.get("skipExtensions") is not None:
